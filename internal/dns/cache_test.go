@@ -163,8 +163,9 @@ func BenchmarkCacheGet(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_, _ = c.Get(req)
 	}
 }
+
 

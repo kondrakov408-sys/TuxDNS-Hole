@@ -203,7 +203,7 @@ func BenchmarkFilter100kDomains(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		for _, td := range testDomains {
 			_ = engine.IsBlocked(td)
 		}
@@ -251,7 +251,7 @@ func BenchmarkFilter1MillionDomains(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		for _, td := range testDomains {
 			_ = engine.IsBlocked(td)
 		}
