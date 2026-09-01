@@ -1,4 +1,8 @@
 bin/
 *.log
 *.tmp
+*.txt
+coverage.txt
 .DS_Store
+TuxDNS-Hole/
+

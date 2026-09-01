@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
           check-latest: true
           cache: true
 
@@ -41,15 +41,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
           check-latest: true
           cache: true
 
       - name: Run unit tests with race detection
         run: go test -v -race -coverprofile=coverage.txt ./...
 
-      - name: Run filter benchmarks
-        run: go test -bench=. -benchmem ./internal/filter
+      - name: Run benchmarks
+        run: go test -bench=. -benchmem ./...
 
   build:
     name: Cross-Platform Build Verification
@@ -69,7 +69,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: 'go.mod'
           check-latest: true
           cache: true
 
@@ -81,3 +81,4 @@ jobs:
         run: |
           mkdir -p bin
           go build -ldflags="-s -w" -o bin/tuxdnshole-${{ matrix.os }}-${{ matrix.arch }} ./cmd/tuxdnshole
+
