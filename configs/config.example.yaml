@@ -13,6 +13,8 @@ server:
   # listen_addr: "127.0.0.1:1053"
   read_timeout: 3s
   write_timeout: 3s
+  # Enable DNSSEC validation & forward DO (DNSSEC OK) bit to upstreams
+  dnssec: true
 
 # Upstream DNS resolvers (supports both DoH https:// and standard UDP/TCP host:port)
 upstream:

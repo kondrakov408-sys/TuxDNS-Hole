@@ -203,10 +203,20 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 
 	start := time.Now()
 	newSnap := &FilterSnapshot{
-		blacklistExact: make(map[string]struct{}),
+		blacklistExact: make(map[string]struct{}, 128*1024),
 		blacklistTrie:  NewDomainTrie(),
-		whitelistExact: make(map[string]struct{}),
+		whitelistExact: make(map[string]struct{}, 1024),
 		whitelistTrie:  NewDomainTrie(),
+	}
+
+	// String interner to share string headers across overlapping blocklists and conserve heap RAM
+	interner := make(map[string]string, 64*1024)
+	intern := func(s string) string {
+		if existing, ok := interner[s]; ok {
+			return existing
+		}
+		interner[s] = s
+		return s
 	}
 
 	// 1. Process Whitelist
@@ -218,7 +228,7 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 		if strings.HasPrefix(clean, "*.") || strings.HasPrefix(clean, ".") {
 			newSnap.whitelistTrie.Insert(clean, true)
 		} else {
-			newSnap.whitelistExact[clean] = struct{}{}
+			newSnap.whitelistExact[intern(clean)] = struct{}{}
 		}
 	}
 
@@ -231,11 +241,11 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 		if strings.HasPrefix(clean, "*.") || strings.HasPrefix(clean, ".") {
 			newSnap.blacklistTrie.Insert(clean, true)
 		} else {
-			newSnap.blacklistExact[clean] = struct{}{}
+			newSnap.blacklistExact[intern(clean)] = struct{}{}
 		}
 	}
 
-	// 3. Process local blocklist files (exact domains go to blacklistExact hash set for compact RAM usage)
+	// 3. Process local blocklist files
 	for _, path := range e.cfg.BlocklistFiles {
 		domains, err := LoadFile(path)
 		if err != nil {
@@ -246,7 +256,7 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 			if strings.HasPrefix(d, "*.") || strings.HasPrefix(d, ".") {
 				newSnap.blacklistTrie.Insert(d, true)
 			} else {
-				newSnap.blacklistExact[d] = struct{}{}
+				newSnap.blacklistExact[intern(d)] = struct{}{}
 			}
 		}
 		e.logger.Debug("loaded local blocklist file", "file", path, "domains_count", len(domains))
@@ -274,7 +284,7 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 				if strings.HasPrefix(d, "*.") || strings.HasPrefix(d, ".") {
 					newSnap.blacklistTrie.Insert(d, true)
 				} else {
-					newSnap.blacklistExact[d] = struct{}{}
+					newSnap.blacklistExact[intern(d)] = struct{}{}
 				}
 			}
 			urlMu.Unlock()

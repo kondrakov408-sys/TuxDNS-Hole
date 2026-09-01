@@ -77,11 +77,14 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// 3. Forward to Upstream Resolvers
+	// 3. Prepare Upstream Request (ECS Stripping + DNSSEC DO bit setup)
+	upstreamReq := h.prepareUpstreamQuery(r)
+
+	// 4. Forward to Upstream Resolvers
 	ctx, cancel := context.WithTimeout(context.Background(), h.cfg.Upstream.Timeout+1*time.Second)
 	defer cancel()
 
-	resp, rtt, err := h.forwarder.Forward(ctx, r)
+	resp, rtt, err := h.forwarder.Forward(ctx, upstreamReq)
 	if err != nil {
 		h.logger.Warn("upstream resolution failed", "domain", qname, "type", dns.TypeToString[q.Qtype], "error", err)
 		m := new(dns.Msg)
@@ -90,10 +93,40 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// 4. Save to Cache and reply to client
+	// Ensure response ID matches original client request
+	resp.Id = r.Id
+
+	// 5. Save clean answer to Cache and reply to client
 	h.cache.Set(r, resp)
 	h.logQuery("forwarded", qname, q.Qtype, rtt)
 	_ = w.WriteMsg(resp)
+}
+
+// prepareUpstreamQuery strips EDNS Client Subnet (ECS) to protect client IP and sets DNSSEC DO bit.
+func (h *Handler) prepareUpstreamQuery(r *dns.Msg) *dns.Msg {
+	req := r.Copy()
+	opt := req.IsEdns0()
+
+	if opt != nil {
+		// Filter out ECS (EDNS0 Client Subnet, RFC 7871, code 8)
+		cleanOptions := make([]dns.EDNS0, 0, len(opt.Option))
+		for _, o := range opt.Option {
+			if o.Option() != dns.EDNS0SUBNET {
+				cleanOptions = append(cleanOptions, o)
+			}
+		}
+		opt.Option = cleanOptions
+
+		// Configure DNSSEC DO bit if enabled
+		if h.cfg.Server.DNSSEC {
+			opt.SetDo()
+		}
+	} else if h.cfg.Server.DNSSEC {
+		// Add OPT RR with DO bit enabled
+		req.SetEdns0(1232, true)
+	}
+
+	return req
 }
 
 // handleBlocked generates and sends a sinkhole response.

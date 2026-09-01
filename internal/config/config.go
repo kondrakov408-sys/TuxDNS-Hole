@@ -27,6 +27,7 @@ type ServerConfig struct {
 	ListenAddr   string        `yaml:"listen_addr"`
 	ReadTimeout  time.Duration `yaml:"read_timeout"`  // e.g. "3s"
 	WriteTimeout time.Duration `yaml:"write_timeout"` // e.g. "3s"
+	DNSSEC       bool          `yaml:"dnssec"`        // Enable DNSSEC validation & DO bit forwarding (default: true)
 }
 
 // GetListenAddrs returns normalized list of addresses to bind.
@@ -87,6 +88,7 @@ func DefaultConfig() *Config {
 			},
 			ReadTimeout:  3 * time.Second,
 			WriteTimeout: 3 * time.Second,
+			DNSSEC:       true,
 		},
 		Upstream: UpstreamConfig{
 			Servers: []string{
