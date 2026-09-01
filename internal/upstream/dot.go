@@ -32,10 +32,7 @@ func NewDoTClient(
 	customBootstrapIPs []string,
 	bootstrapMap map[string][]string,
 ) *DoTClient {
-	raw := endpoint
-	if strings.HasPrefix(raw, "tls://") {
-		raw = strings.TrimPrefix(raw, "tls://")
-	}
+	raw := strings.TrimPrefix(endpoint, "tls://")
 
 	var host, port string
 	if strings.Contains(raw, "://") {
