@@ -30,6 +30,10 @@ ProtectKernelLogs=true
 PrivateTmp=true
 DynamicUser=true
 ConfigurationDirectory=tuxdnshole
+RuntimeDirectory=tuxdnshole
+RuntimeDirectoryMode=0700
+TemporaryFileSystem=/tmp:ro
+TemporaryFileSystem=/var/log:ro
 RestrictRealtime=true
 RestrictNamespaces=true
 MemoryDenyWriteExecute=true
@@ -38,4 +42,5 @@ SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
+
 

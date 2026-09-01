@@ -128,3 +128,30 @@ opsec:
   zero_log: true
   # Logging verbosity: "debug", "info", "warn", "error"
   log_level: "info"
+
+  # EDNS0 Padding (RFC 7830 / RFC 8467)
+  # Pads queries to fixed 128-byte block multiples to prevent packet-length URL fingerprinting.
+  edns0_padding: true
+  padding_block_size: 128
+
+  # DNS Rebinding Protection
+  # Strips RFC 1918 / loopback / link-local IPs from answers on public domains.
+  dns_rebinding_protection: true
+  allowed_local_domains:
+    - "*.local"
+    - "*.lan"
+    - "*.home.arpa"
+    - "localhost"
+    - "router.lan"
+    - "tplinkwifi.net"
+    - "fritz.box"
+    - "*.internal"
+    - "*.corp"
+
+  # DNS 0x20 Case Randomization
+  # Randomizes ASCII casing in outgoing upstream queries to prevent cache poisoning.
+  dns_0x20: true
+
+  # Lock-free in-memory circular query log buffer (Zero-Disk Footprint, RAM-only)
+  ring_buffer_size: 1000
+

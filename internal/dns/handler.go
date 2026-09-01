@@ -15,13 +15,14 @@ import (
 
 // Handler implements dns.Handler to process incoming client DNS queries.
 type Handler struct {
-	cfg       *config.Config
-	filter    *filter.Engine
-	forwarder *upstream.Forwarder
-	cache     *Cache
-	logger    *slog.Logger
-	zeroIPv4  net.IP
-	zeroIPv6  net.IP
+	cfg        *config.Config
+	filter     *filter.Engine
+	forwarder  *upstream.Forwarder
+	cache      *Cache
+	logger     *slog.Logger
+	ringBuffer *RingBuffer
+	zeroIPv4   net.IP
+	zeroIPv6   net.IP
 }
 
 // NewHandler creates a new DNS query Handler.
@@ -41,15 +42,26 @@ func NewHandler(
 		zeroIPv6 = net.IPv6zero
 	}
 
-	return &Handler{
-		cfg:       cfg,
-		filter:    filterEngine,
-		forwarder: forwarder,
-		cache:     cache,
-		logger:    logger,
-		zeroIPv4:  zeroIPv4,
-		zeroIPv6:  zeroIPv6,
+	rbSize := cfg.OpSec.RingBufferSize
+	if rbSize <= 0 {
+		rbSize = 1000
 	}
+
+	return &Handler{
+		cfg:        cfg,
+		filter:     filterEngine,
+		forwarder:  forwarder,
+		cache:      cache,
+		logger:     logger,
+		ringBuffer: NewRingBuffer(rbSize),
+		zeroIPv4:   zeroIPv4,
+		zeroIPv6:   zeroIPv6,
+	}
+}
+
+// RingBuffer returns the in-memory circular query log buffer.
+func (h *Handler) RingBuffer() *RingBuffer {
+	return h.ringBuffer
 }
 
 // ServeDNS handles incoming UDP and TCP DNS requests.
@@ -77,7 +89,7 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// 3. Prepare Upstream Request (ECS Stripping + DNSSEC DO bit setup)
+	// 3. Prepare Upstream Request (ECS Stripping + 0x20 Randomization + EDNS0 Padding + DNSSEC DO bit)
 	upstreamReq := h.prepareUpstreamQuery(r)
 
 	// 4. Forward to Upstream Resolvers
@@ -93,7 +105,23 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	// 5. CNAME Uncloaking: Inspect canonical alias targets in upstream answer
+	// 5. DNS 0x20 Soft Fallback Check
+	if h.cfg.OpSec.DNS0x20 && resp != nil && len(resp.Question) > 0 {
+		if !Is0x20Match(upstreamReq.Question[0].Name, resp.Question[0].Name) {
+			h.logger.Debug("upstream altered 0x20 case, applying soft fallback",
+				"domain", qname,
+				"expected", upstreamReq.Question[0].Name,
+				"received", resp.Question[0].Name,
+			)
+		}
+	}
+
+	// Restore original client casing in response question
+	if resp != nil && len(resp.Question) > 0 {
+		resp.Question[0].Name = r.Question[0].Name
+	}
+
+	// 6. CNAME Uncloaking: Inspect canonical alias targets in upstream answer
 	if h.cfg.Blocking.CNAMEUncloaking && resp != nil && len(resp.Answer) > 0 {
 		for _, rr := range resp.Answer {
 			if cnameRR, ok := rr.(*dns.CNAME); ok {
@@ -107,22 +135,40 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		}
 	}
 
+	// 7. DNS Rebinding Protection: Strip private IP responses from public domains
+	if h.cfg.OpSec.DNSRebindingProtection && resp != nil && len(resp.Answer) > 0 {
+		if FilterDNSRebinding(resp, qname, h.cfg.OpSec.AllowedLocalDomains) {
+			h.logger.Warn("blocked DNS rebinding attack resolving to private/local IP",
+				"domain", qname,
+				"answers_count", len(resp.Answer),
+			)
+			h.handleBlocked(w, r, q, qname)
+			return
+		}
+	}
+
 	// Ensure response ID matches original client request
 	resp.Id = r.Id
 
-	// 6. Save clean answer to Cache and reply to client
+	// 8. Save clean answer to Cache and reply to client
 	h.cache.Set(r, resp)
 	h.logQuery("forwarded", qname, q.Qtype, rtt)
 	_ = w.WriteMsg(resp)
 }
 
-// prepareUpstreamQuery strips EDNS Client Subnet (ECS) to protect client IP and sets DNSSEC DO bit.
+// prepareUpstreamQuery configures privacy defenses: ECS stripping, 0x20 case randomization, EDNS0 padding, and DNSSEC DO bit.
 func (h *Handler) prepareUpstreamQuery(r *dns.Msg) *dns.Msg {
 	req := r.Copy()
+
+	// 1. DNS 0x20 Case Randomization
+	if h.cfg.OpSec.DNS0x20 && len(req.Question) > 0 {
+		req.Question[0].Name = Randomize0x20(req.Question[0].Name)
+	}
+
 	opt := req.IsEdns0()
 
 	if opt != nil {
-		// Filter out ECS (EDNS0 Client Subnet, RFC 7871, code 8)
+		// 2. Strip ECS (EDNS0 Client Subnet, RFC 7871, code 8)
 		cleanOptions := make([]dns.EDNS0, 0, len(opt.Option))
 		for _, o := range opt.Option {
 			if o.Option() != dns.EDNS0SUBNET {
@@ -131,13 +177,18 @@ func (h *Handler) prepareUpstreamQuery(r *dns.Msg) *dns.Msg {
 		}
 		opt.Option = cleanOptions
 
-		// Configure DNSSEC DO bit if enabled
+		// 3. Configure DNSSEC DO bit if enabled
 		if h.cfg.Server.DNSSEC {
 			opt.SetDo()
 		}
-	} else if h.cfg.Server.DNSSEC {
+	} else if h.cfg.Server.DNSSEC || h.cfg.OpSec.EDNS0Padding {
 		// Add OPT RR with DO bit enabled
-		req.SetEdns0(1232, true)
+		req.SetEdns0(1232, h.cfg.Server.DNSSEC)
+	}
+
+	// 4. EDNS0 Padding (RFC 7830 / RFC 8467)
+	if h.cfg.OpSec.EDNS0Padding {
+		ApplyEDNS0Padding(req, h.cfg.OpSec.PaddingBlockSize)
 	}
 
 	return req
@@ -197,8 +248,19 @@ func (h *Handler) handleBlocked(w dns.ResponseWriter, r *dns.Msg, q dns.Question
 	_ = w.WriteMsg(resp)
 }
 
-// logQuery handles structured logging while strictly respecting OpSec Zero-Log rules.
+// logQuery handles structured logging and zero-disk in-memory ring buffer tracking.
 func (h *Handler) logQuery(status string, domain string, qtype uint16, rtt time.Duration) {
+	// Record to in-memory lock-free RingBuffer (Anti-Forensics: zero disk touches)
+	if h.ringBuffer != nil {
+		h.ringBuffer.Push(&QueryLogEntry{
+			Timestamp: time.Now(),
+			Domain:    domain,
+			Qtype:     qtype,
+			Status:    status,
+			RTT:       rtt,
+		})
+	}
+
 	if h.cfg.OpSec.ZeroLog {
 		// Zero-Log Mode: Only log blocked events if debug logging is specifically active
 		if status == "blocked" {
@@ -215,3 +277,4 @@ func (h *Handler) logQuery(status string, domain string, qtype uint16, rtt time.
 		"rtt", rtt.String(),
 	)
 }
+

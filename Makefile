@@ -4,7 +4,7 @@ CONFIG_DIR=/etc/tuxdnshole
 INSTALL_PATH=/usr/local/bin/$(BINARY_NAME)
 SERVICE_PATH=/etc/systemd/system/tuxdnshole.service
 
-.PHONY: all build test clean run install service uninstall
+.PHONY: all build test clean run install service uninstall harden setup-resolv
 
 all: build
 
@@ -15,7 +15,16 @@ build:
 
 test:
 	@echo "==> Running tests..."
-	go test -v ./...
+	go test -v -race ./...
+
+harden:
+	@echo "==> Installing network security sysctl settings..."
+	install -m 644 configs/99-tuxdns-security.conf /etc/sysctl.d/99-tuxdns-security.conf
+	sysctl --system
+
+setup-resolv:
+	@echo "==> Configuring and locking /etc/resolv.conf..."
+	./scripts/setup-resolvconf.sh
 
 run: build
 	@echo "==> Running $(BINARY_NAME) in local debug mode..."
@@ -28,6 +37,8 @@ install: build
 	@echo "==> Installing systemd unit to $(SERVICE_PATH)..."
 	install -d /etc/systemd/system
 	install -m 644 systemd/tuxdnshole.service $(SERVICE_PATH)
+	@echo "==> Installing sysctl security config..."
+	install -m 644 configs/99-tuxdns-security.conf /etc/sysctl.d/99-tuxdns-security.conf 2>/dev/null || true
 	@echo "==> Setting up config directory $(CONFIG_DIR)..."
 	install -d $(CONFIG_DIR)
 	install -d $(CONFIG_DIR)/blocklists
@@ -52,6 +63,7 @@ uninstall:
 	-systemctl stop tuxdnshole
 	-systemctl disable tuxdnshole
 	rm -f $(SERVICE_PATH)
+	rm -f /etc/sysctl.d/99-tuxdns-security.conf
 	systemctl daemon-reload
 	@echo "==> Removing binary..."
 	rm -f $(INSTALL_PATH)
@@ -60,3 +72,4 @@ uninstall:
 clean:
 	@echo "==> Cleaning build artifacts..."
 	rm -rf $(BUILD_DIR)
+

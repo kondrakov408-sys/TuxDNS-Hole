@@ -74,10 +74,16 @@ type CacheConfig struct {
 	MaxTTL  time.Duration `yaml:"max_ttl"` // Maximum TTL ceiling (e.g. "86400s")
 }
 
-// OpSecConfig configures privacy and logging behaviors.
+// OpSecConfig configures privacy and advanced anti-tracking/anti-tampering behaviors.
 type OpSecConfig struct {
-	ZeroLog  bool   `yaml:"zero_log"`  // When true, client IP and individual queried domain logs are never recorded
-	LogLevel string `yaml:"log_level"` // "debug", "info", "warn", "error"
+	ZeroLog                bool     `yaml:"zero_log"`                 // When true, client IP and individual queried domain logs are never recorded
+	LogLevel               string   `yaml:"log_level"`                // "debug", "info", "warn", "error"
+	EDNS0Padding           bool     `yaml:"edns0_padding"`            // Pad upstream queries to fixed block sizes (RFC 7830 / RFC 8467)
+	PaddingBlockSize       int      `yaml:"padding_block_size"`       // Block size in bytes (e.g. 128)
+	DNSRebindingProtection bool     `yaml:"dns_rebinding_protection"` // Strip private/local IPs from public upstream answers
+	AllowedLocalDomains    []string `yaml:"allowed_local_domains"`    // Excluded from DNS rebinding checks (e.g. ["*.local", "*.lan", "router.lan"])
+	DNS0x20                bool     `yaml:"dns_0x20"`                 // Randomize case of outgoing upstream queries to protect against DNS cache poisoning
+	RingBufferSize         int      `yaml:"ring_buffer_size"`         // In-memory zero-disk circular query log buffer size (e.g. 1000)
 }
 
 // DefaultConfig returns safe and optimized defaults with dual-stack IPv4/IPv6 support.
@@ -152,8 +158,24 @@ func DefaultConfig() *Config {
 			MaxTTL:  86400 * time.Second,
 		},
 		OpSec: OpSecConfig{
-			ZeroLog:  true,
-			LogLevel: "info",
+			ZeroLog:                true,
+			LogLevel:               "info",
+			EDNS0Padding:           true,
+			PaddingBlockSize:       128,
+			DNSRebindingProtection: true,
+			AllowedLocalDomains: []string{
+				"*.local",
+				"*.lan",
+				"*.home.arpa",
+				"localhost",
+				"router.lan",
+				"tplinkwifi.net",
+				"fritz.box",
+				"*.internal",
+				"*.corp",
+			},
+			DNS0x20:        true,
+			RingBufferSize: 1000,
 		},
 	}
 }
@@ -214,5 +236,12 @@ func (c *Config) Validate() error {
 	if c.Cache.Size <= 0 {
 		c.Cache.Size = 10000
 	}
+	if c.OpSec.PaddingBlockSize <= 0 {
+		c.OpSec.PaddingBlockSize = 128
+	}
+	if c.OpSec.RingBufferSize < 0 {
+		c.OpSec.RingBufferSize = 1000
+	}
 	return nil
 }
+
