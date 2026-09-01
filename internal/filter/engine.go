@@ -3,6 +3,7 @@ package filter
 import (
 	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -160,6 +161,7 @@ func iterateDomainLabelsReverse(domain string, fn func(label string) bool) {
 type FilterSnapshot struct {
 	blacklistExact map[string]struct{}
 	blacklistTrie  *DomainTrie
+	regexBlacklist []*regexp.Regexp
 	whitelistExact map[string]struct{}
 	whitelistTrie  *DomainTrie
 	totalRules     int
@@ -245,7 +247,21 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 		}
 	}
 
-	// 3. Process local blocklist files
+	// 3. Process Regex Blacklist
+	for _, pattern := range e.cfg.RegexBlacklist {
+		p := strings.TrimSpace(pattern)
+		if p == "" {
+			continue
+		}
+		compiled, err := regexp.Compile(p)
+		if err != nil {
+			e.logger.Warn("failed to compile blacklist regex", "pattern", p, "error", err)
+			continue
+		}
+		newSnap.regexBlacklist = append(newSnap.regexBlacklist, compiled)
+	}
+
+	// 4. Process local blocklist files
 	for _, path := range e.cfg.BlocklistFiles {
 		domains, err := LoadFile(path)
 		if err != nil {
@@ -262,7 +278,7 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 		e.logger.Debug("loaded local blocklist file", "file", path, "domains_count", len(domains))
 	}
 
-	// 4. Process remote blocklist URLs
+	// 5. Process remote blocklist URLs
 	var wg sync.WaitGroup
 	var urlMu sync.Mutex
 
@@ -295,11 +311,12 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 
 	wg.Wait()
 
-	newSnap.totalRules = len(newSnap.blacklistExact) + newSnap.blacklistTrie.count
+	newSnap.totalRules = len(newSnap.blacklistExact) + newSnap.blacklistTrie.count + len(newSnap.regexBlacklist)
 	e.snapshot.Store(newSnap)
 
 	e.logger.Info("filter rules successfully updated",
 		"total_blocked_domains", newSnap.totalRules,
+		"regex_count", len(newSnap.regexBlacklist),
 		"whitelist_count", len(e.cfg.Whitelist),
 		"duration", time.Since(start).String(),
 	)
@@ -307,7 +324,7 @@ func (e *Engine) LoadRules(ctx context.Context) error {
 	return nil
 }
 
-// IsBlocked checks if a domain should be sinkholed according to whitelist and blacklist rules.
+// IsBlocked checks if a domain should be sinkholed according to whitelist, blacklist, and regex rules.
 func (e *Engine) IsBlocked(domain string) bool {
 	if !e.cfg.Enabled {
 		return false
@@ -341,6 +358,13 @@ func (e *Engine) IsBlocked(domain string) bool {
 	// 4. Check Blacklist wildcard Trie (if rules exist)
 	if snap.blacklistTrie.HasRules() && snap.blacklistTrie.Matches(d) {
 		return true
+	}
+
+	// 5. Check Regex patterns (only evaluated after exact and trie misses)
+	for _, re := range snap.regexBlacklist {
+		if re.MatchString(d) {
+			return true
+		}
 	}
 
 	return false

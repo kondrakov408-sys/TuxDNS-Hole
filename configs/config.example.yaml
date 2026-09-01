@@ -16,19 +16,22 @@ server:
   # Enable DNSSEC validation & forward DO (DNSSEC OK) bit to upstreams
   dnssec: true
 
-# Upstream DNS resolvers (supports both DoH https:// and standard UDP/TCP host:port)
+# Upstream DNS resolvers (supports DoH https://, DoT tls://, and standard UDP/TCP host:port)
 upstream:
   servers:
-    # Encrypted DNS-over-HTTPS (DoH) via Quad9, Cloudflare, Mullvad
+    # Encrypted DNS-over-HTTPS (DoH)
     - "https://dns.quad9.net/dns-query"
     - "https://cloudflare-dns.com/dns-query"
     - "https://dns.mullvad.net/dns-query"
+    # Encrypted DNS-over-TLS (DoT, RFC 7858)
+    # - "tls://dns.quad9.net:853"
+    # - "tls://1.1.1.1:853"
     # Fallback to standard UDP resolvers if desired:
     # - "9.9.9.9:53"
     # - "1.1.1.1:53"
 
   # Bootstrap IPs: Eliminates cold-start deadlock when /etc/resolv.conf already points to 127.0.0.1.
-  # The daemon connects directly to these IPs to reach DoH providers while validating TLS SNI hostnames.
+  # The daemon connects directly to these IPs to reach DoH/DoT providers while validating TLS SNI hostnames.
   bootstrap_ips:
     - "9.9.9.9"
     - "149.112.112.112"
@@ -64,21 +67,26 @@ blocking:
   block_mode: "zero_ip"
   ttl: 300
 
+  # CNAME Uncloaking: Inspects upstream CNAME canonical aliases to block disguised third-party trackers
+  cname_uncloaking: true
+
   # Custom IPs for zero_ip block mode
   custom_zero_ipv4: "0.0.0.0"
   custom_zero_ipv6: "::"
 
   # Remote blocklists (automatically downloaded & updated)
   blocklist_urls:
-    # 1. HaGeZi Multi PRO (ТОП-1: баланс реклама/трекеры/телеметрия)
-    - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt"
-    # 2. OISD Big (глобальная база рекламы и трекеров)
+    # 1. HaGeZi Multi ULTIMATE / PRO (Максимальная защита от рекламы, телеметрии и трекеров)
+    - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/ultimate.txt"
+    # 2. 1Hosts Pro (Агрессивная фильтрация трекеров и аналитики)
+    - "https://raw.githubusercontent.com/badmojr/1Hosts/master/Pro/hosts.txt"
+    # 3. OISD Big (глобальная база рекламы и трекеров)
     - "https://big.oisd.nl/domainswild"
-    # 3. StevenBlack Unified (реклама + вредоносные сайты + фишинг)
+    # 4. StevenBlack Unified (реклама + вредоносные сайты + фишинг)
     - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-    # 4. HaGeZi Threat Intelligence Feeds (C2-серверы, малварь, трояны)
+    # 5. HaGeZi Threat Intelligence Feeds (C2-серверы, малварь, трояны)
     - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/tif.txt"
-    # 5. RU AdList (лучшая база для Рунета: счетчики, баннеры, трекеры)
+    # 6. RU AdList (лучшая база для Рунета: счетчики, баннеры, трекеры)
     - "https://raw.githubusercontent.com/ruben-m/ru-adlist-hosts/master/hosts"
 
   # Local blocklist files (hosts format or one domain per line)
@@ -90,6 +98,13 @@ blocking:
     - "*.telemetry.microsoft.com"
     - "*.data.microsoft.com"
     - "telemetry.google.com"
+
+  # Dynamic regular expression filtering (checked only after exact/wildcard cache misses)
+  regex_blacklist:
+    - "^telemetry\\..*"
+    - ".*-analytics\\..*"
+    - ".*adservice\\..*"
+    - "^metrics\\..*"
 
   # Domains that must never be blocked (overrides all blocklists)
   whitelist:

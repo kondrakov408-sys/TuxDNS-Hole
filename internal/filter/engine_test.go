@@ -127,6 +127,45 @@ func TestFilterEnginePrecedence(t *testing.T) {
 	}
 }
 
+func TestRegexFiltering(t *testing.T) {
+	cfg := &config.BlockingConfig{
+		Enabled:   true,
+		BlockMode: "zero_ip",
+		RegexBlacklist: []string{
+			`^telemetry\..*`,
+			`.*-analytics\..*`,
+		},
+		Whitelist: []string{
+			"telemetry.allowed-corp.com",
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := NewEngine(cfg, logger)
+
+	if err := engine.LoadRules(context.Background()); err != nil {
+		t.Fatalf("failed to load regex rules: %v", err)
+	}
+
+	tests := []struct {
+		domain  string
+		blocked bool
+	}{
+		{"telemetry.windows.com", true},
+		{"telemetry.sub.domain.org", true},
+		{"app-analytics.company.io", true},
+		{"telemetry.allowed-corp.com", false}, // Whitelist override
+		{"google.com", false},
+	}
+
+	for _, tc := range tests {
+		got := engine.IsBlocked(tc.domain)
+		if got != tc.blocked {
+			t.Errorf("Regex IsBlocked(%q) = %v, expected %v", tc.domain, got, tc.blocked)
+		}
+	}
+}
+
 func BenchmarkFilter100kDomains(b *testing.B) {
 	cfg := &config.BlockingConfig{
 		Enabled:   true,

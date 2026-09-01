@@ -124,6 +124,8 @@ func NewForwarder(cfg *config.UpstreamConfig, logger *slog.Logger) (*Forwarder, 
 
 		if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") {
 			resolvers = append(resolvers, NewDoHResolver(s, timeout, cfg.BootstrapIPs, cfg.BootstrapMap))
+		} else if strings.HasPrefix(s, "tls://") {
+			resolvers = append(resolvers, NewDoTClient(s, timeout, cfg.BootstrapIPs, cfg.BootstrapMap))
 		} else {
 			resolvers = append(resolvers, NewStandardResolver(s, timeout))
 		}

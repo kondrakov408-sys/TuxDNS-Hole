@@ -56,12 +56,14 @@ type BlockingConfig struct {
 	BlockMode      string        `yaml:"block_mode"`       // "zero_ip" (0.0.0.0 / ::) or "nxdomain"
 	BlocklistURLs  []string      `yaml:"blocklist_urls"`   // Remote lists to download
 	BlocklistFiles []string      `yaml:"blocklist_files"`  // Local list paths
-	Blacklist      []string      `yaml:"blacklist"`        // Manual custom domains to block (can include wildcards e.g. "*.telemetry.com")
-	Whitelist      []string      `yaml:"whitelist"`        // Domains always allowed
-	UpdateInterval time.Duration `yaml:"update_interval"`  // Periodic reload interval (e.g. "24h")
-	CustomZeroIPv4 string        `yaml:"custom_zero_ipv4"` // Default "0.0.0.0"
-	CustomZeroIPv6 string        `yaml:"custom_zero_ipv6"` // Default "::"
-	TTL            uint32        `yaml:"ttl"`               // TTL for sinkhole responses (default: 300)
+	Blacklist        []string      `yaml:"blacklist"`        // Manual custom domains to block (can include wildcards e.g. "*.telemetry.com")
+	RegexBlacklist   []string      `yaml:"regex_blacklist"`  // Regex patterns to block (e.g. "^telemetry\..*")
+	Whitelist        []string      `yaml:"whitelist"`        // Domains always allowed
+	CNAMEUncloaking  bool          `yaml:"cname_uncloaking"` // Inspect CNAME aliases to prevent cloaked tracking (default: true)
+	UpdateInterval   time.Duration `yaml:"update_interval"`  // Periodic reload interval (e.g. "24h")
+	CustomZeroIPv4   string        `yaml:"custom_zero_ipv4"` // Default "0.0.0.0"
+	CustomZeroIPv6   string        `yaml:"custom_zero_ipv6"` // Default "::"
+	TTL              uint32        `yaml:"ttl"`               // TTL for sinkhole responses (default: 300)
 }
 
 // CacheConfig defines the in-memory LRU cache parameters.
@@ -135,7 +137,9 @@ func DefaultConfig() *Config {
 			},
 			BlocklistFiles: []string{},
 			Blacklist:      []string{},
+			RegexBlacklist: []string{},
 			Whitelist:      []string{},
+			CNAMEUncloaking: true,
 			UpdateInterval: 24 * time.Hour,
 			CustomZeroIPv4: "0.0.0.0",
 			CustomZeroIPv6: "::",

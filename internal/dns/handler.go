@@ -64,7 +64,7 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	q := r.Question[0]
 	qname := strings.ToLower(dns.Fqdn(q.Name))
 
-	// 1. Check if domain is blocked by the filter engine
+	// 1. Check if direct domain is blocked by the filter engine
 	if h.filter.IsBlocked(qname) {
 		h.handleBlocked(w, r, q, qname)
 		return
@@ -93,10 +93,24 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
+	// 5. CNAME Uncloaking: Inspect canonical alias targets in upstream answer
+	if h.cfg.Blocking.CNAMEUncloaking && resp != nil && len(resp.Answer) > 0 {
+		for _, rr := range resp.Answer {
+			if cnameRR, ok := rr.(*dns.CNAME); ok {
+				cnameTarget := strings.ToLower(dns.Fqdn(cnameRR.Target))
+				if h.filter.IsBlocked(cnameTarget) {
+					h.logger.Debug("blocked cloaked CNAME tracker", "domain", qname, "cname_target", cnameTarget)
+					h.handleBlocked(w, r, q, qname)
+					return
+				}
+			}
+		}
+	}
+
 	// Ensure response ID matches original client request
 	resp.Id = r.Id
 
-	// 5. Save clean answer to Cache and reply to client
+	// 6. Save clean answer to Cache and reply to client
 	h.cache.Set(r, resp)
 	h.logQuery("forwarded", qname, q.Qtype, rtt)
 	_ = w.WriteMsg(resp)
