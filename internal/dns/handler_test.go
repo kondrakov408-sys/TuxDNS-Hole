@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -132,3 +133,172 @@ func TestCNAMEUncloaking(t *testing.T) {
 		t.Errorf("expected cloaked CNAME to be sinkholed to 0.0.0.0, got %s", aRecord.A.String())
 	}
 }
+
+func TestHandlerCacheLatency(t *testing.T) {
+	mockSrv, mockAddr := startMockCNAMEUpstream(t)
+	defer mockSrv.Shutdown()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := &config.Config{
+		Server: config.ServerConfig{DNSSEC: false},
+		Upstream: config.UpstreamConfig{
+			Servers:  []string{mockAddr},
+			Timeout:  2 * time.Second,
+			Strategy: "round_robin",
+		},
+		Blocking: config.BlockingConfig{Enabled: false},
+		Cache:    config.CacheConfig{Enabled: true, Size: 1000, MinTTL: 60 * time.Second, MaxTTL: 3600 * time.Second},
+	}
+
+	filterEngine := filter.NewEngine(&cfg.Blocking, logger)
+	forwarder, _ := upstream.NewForwarder(&cfg.Upstream, logger)
+	cache := NewCache(&cfg.Cache)
+	handler := NewHandler(cfg, filterEngine, forwarder, cache, logger)
+
+	req := new(dns.Msg)
+	req.SetQuestion("example.com.", dns.TypeA)
+
+	// First query (cold cache, forwarded)
+	w1 := &mockResponseWriter{}
+	handler.ServeDNS(w1, req)
+
+	// Second query (cached) - measure latency
+	w2 := &mockResponseWriter{}
+	start := time.Now()
+	handler.ServeDNS(w2, req)
+	duration := time.Since(start)
+
+	if duration > 1*time.Millisecond {
+		t.Errorf("expected cache response < 1ms, got %v", duration)
+	}
+	t.Logf("Cached DNS Query Latency: %v (< 1ms requirement satisfied)", duration)
+}
+
+func TestHandlerUpstreamFailureGraceful(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Point to dead upstream port
+	cfg := &config.Config{
+		Server: config.ServerConfig{DNSSEC: false},
+		Upstream: config.UpstreamConfig{
+			Servers:  []string{"127.0.0.1:59999"},
+			Timeout:  50 * time.Millisecond,
+			Strategy: "round_robin",
+		},
+		Blocking: config.BlockingConfig{Enabled: false},
+		Cache:    config.CacheConfig{Enabled: false},
+	}
+
+	filterEngine := filter.NewEngine(&cfg.Blocking, logger)
+	forwarder, _ := upstream.NewForwarder(&cfg.Upstream, logger)
+	cache := NewCache(&cfg.Cache)
+	handler := NewHandler(cfg, filterEngine, forwarder, cache, logger)
+
+	req := new(dns.Msg)
+	req.SetQuestion("nonexistent.com.", dns.TypeA)
+	req.Id = 9999
+
+	w := &mockResponseWriter{}
+	// Must not panic, must return SERVFAIL
+	handler.ServeDNS(w, req)
+
+	if w.msg == nil {
+		t.Fatalf("expected SERVFAIL response, got nil")
+	}
+	if w.msg.Rcode != dns.RcodeServerFailure {
+		t.Errorf("expected RcodeServerFailure (SERVFAIL), got %d", w.msg.Rcode)
+	}
+}
+
+func TestHandlerGoroutinesAndRace(t *testing.T) {
+	mockSrv, mockAddr := startMockCNAMEUpstream(t)
+	defer mockSrv.Shutdown()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := &config.Config{
+		Server: config.ServerConfig{DNSSEC: false},
+		Upstream: config.UpstreamConfig{
+			Servers:  []string{mockAddr},
+			Timeout:  1 * time.Second,
+			Strategy: "round_robin",
+		},
+		Blocking: config.BlockingConfig{Enabled: true, Blacklist: []string{"blocked.com"}, CustomZeroIPv4: "0.0.0.0"},
+		Cache:    config.CacheConfig{Enabled: true, Size: 1000, MinTTL: 60 * time.Second, MaxTTL: 3600 * time.Second},
+	}
+
+	filterEngine := filter.NewEngine(&cfg.Blocking, logger)
+	_ = filterEngine.LoadRules(context.Background())
+	forwarder, _ := upstream.NewForwarder(&cfg.Upstream, logger)
+	cache := NewCache(&cfg.Cache)
+	handler := NewHandler(cfg, filterEngine, forwarder, cache, logger)
+
+	// Send 200 concurrent queries
+	var wg sync.WaitGroup
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			req := new(dns.Msg)
+			if idx%3 == 0 {
+				req.SetQuestion("blocked.com.", dns.TypeA)
+			} else {
+				req.SetQuestion("example.com.", dns.TypeA)
+			}
+			req.Id = uint16(idx)
+			w := &mockResponseWriter{}
+			handler.ServeDNS(w, req)
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestEDNSClientSubnetStripping(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := &config.Config{
+		Server: config.ServerConfig{DNSSEC: true},
+	}
+	handler := NewHandler(cfg, nil, nil, nil, logger)
+
+	// Create DNS request with EDNS Client Subnet (ECS, RFC 7871)
+	req := new(dns.Msg)
+	req.SetQuestion("privacy-test.com.", dns.TypeA)
+
+	opt := new(dns.OPT)
+	opt.Hdr.Name = "."
+	opt.Hdr.Rrtype = dns.TypeOPT
+	opt.SetUDPSize(4096)
+
+	// Attach ECS option containing client IP subnet (e.g. 198.51.100.0/24)
+	ecsOption := &dns.EDNS0_SUBNET{
+		Code:          dns.EDNS0SUBNET,
+		Family:        1, // IPv4
+		SourceNetmask: 24,
+		SourceScope:   0,
+		Address:       net.ParseIP("198.51.100.0").To4(),
+	}
+	opt.Option = append(opt.Option, ecsOption)
+	req.Extra = append(req.Extra, opt)
+
+	// Verify original request has ECS
+	if req.IsEdns0() == nil || len(req.IsEdns0().Option) == 0 {
+		t.Fatalf("failed to setup test ECS option in request")
+	}
+
+	// Prepare upstream query
+	prepared := handler.prepareUpstreamQuery(req)
+
+	// Ensure ECS option was completely stripped
+	preparedOpt := prepared.IsEdns0()
+	if preparedOpt != nil {
+		for _, o := range preparedOpt.Option {
+			if o.Option() == dns.EDNS0SUBNET {
+				t.Fatalf("ECS (EDNS0 Client Subnet) was NOT stripped from upstream query!")
+			}
+		}
+		// Verify DNSSEC DO bit is still preserved/set
+		if !preparedOpt.Do() {
+			t.Errorf("expected DNSSEC DO bit to be enabled")
+		}
+	}
+}
+
+

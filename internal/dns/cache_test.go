@@ -98,3 +98,73 @@ func TestDNSCache(t *testing.T) {
 		t.Errorf("expected req3 to remain in cache")
 	}
 }
+
+func TestDNSCacheConcurrencyRace(t *testing.T) {
+	cfg := &config.CacheConfig{
+		Enabled: true,
+		Size:    1000,
+		MinTTL:  10 * time.Second,
+		MaxTTL:  60 * time.Second,
+	}
+	c := NewCache(cfg)
+
+	done := make(chan bool)
+	for i := 0; i < 50; i++ {
+		go func(id int) {
+			for j := 0; j < 100; j++ {
+				req := new(dns.Msg)
+				req.SetQuestion(net.JoinHostPort("domain", "com."), dns.TypeA)
+				req.Id = uint16(id*100 + j)
+
+				resp := new(dns.Msg)
+				resp.SetReply(req)
+				resp.Answer = []dns.RR{
+					&dns.A{
+						Hdr: dns.RR_Header{Name: "domain.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+						A:   net.ParseIP("1.1.1.1"),
+					},
+				}
+
+				c.Set(req, resp)
+				_, _ = c.Get(req)
+			}
+			done <- true
+		}(i)
+	}
+
+	for i := 0; i < 50; i++ {
+		<-done
+	}
+}
+
+func BenchmarkCacheGet(b *testing.B) {
+	cfg := &config.CacheConfig{
+		Enabled: true,
+		Size:    10000,
+		MinTTL:  60 * time.Second,
+		MaxTTL:  3600 * time.Second,
+	}
+	c := NewCache(cfg)
+
+	req := new(dns.Msg)
+	req.SetQuestion("example.com.", dns.TypeA)
+	req.Id = 1234
+
+	resp := new(dns.Msg)
+	resp.SetReply(req)
+	resp.Answer = []dns.RR{
+		&dns.A{
+			Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			A:   net.ParseIP("93.184.216.34"),
+		},
+	}
+	c.Set(req, resp)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_, _ = c.Get(req)
+	}
+}
+
