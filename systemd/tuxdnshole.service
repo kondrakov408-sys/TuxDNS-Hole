@@ -1,0 +1,28 @@
+[Unit]
+Description=TuxDNS-Hole High-Performance Local DNS Sinkhole
+Documentation=https://github.com/tuxdns/tuxdnshole
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tuxdnshole -config /etc/tuxdnshole/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=3s
+LimitNOFILE=65536
+
+# Security Hardening & Rootless Port 53 Binding
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+PrivateTmp=true
+DynamicUser=true
+ConfigurationDirectory=tuxdnshole
+
+[Install]
+WantedBy=multi-user.target

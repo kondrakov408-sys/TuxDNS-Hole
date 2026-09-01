@@ -1,0 +1,107 @@
+# ==============================================================================
+# TuxDNS-Hole - Minimalist & Secure Local DNS Sinkhole Daemon
+# ==============================================================================
+
+# Server configuration (supports IPv4 and IPv6 dual-stack listeners)
+server:
+  # List of IP addresses and ports to bind.
+  # Dual-stack localhost setup prevents DNS leaks over IPv6 SLAAC/RA.
+  listen_addrs:
+    - "127.0.0.1:53"
+    - "[::1]:53"
+  # Or use single address for testing:
+  # listen_addr: "127.0.0.1:1053"
+  read_timeout: 3s
+  write_timeout: 3s
+
+# Upstream DNS resolvers (supports both DoH https:// and standard UDP/TCP host:port)
+upstream:
+  servers:
+    # Encrypted DNS-over-HTTPS (DoH) via Quad9, Cloudflare, Mullvad
+    - "https://dns.quad9.net/dns-query"
+    - "https://cloudflare-dns.com/dns-query"
+    - "https://dns.mullvad.net/dns-query"
+    # Fallback to standard UDP resolvers if desired:
+    # - "9.9.9.9:53"
+    # - "1.1.1.1:53"
+
+  # Bootstrap IPs: Eliminates cold-start deadlock when /etc/resolv.conf already points to 127.0.0.1.
+  # The daemon connects directly to these IPs to reach DoH providers while validating TLS SNI hostnames.
+  bootstrap_ips:
+    - "9.9.9.9"
+    - "149.112.112.112"
+    - "1.1.1.1"
+    - "1.0.0.1"
+    - "2620:fe::fe"
+    - "2606:4700:4700::1111"
+
+  # Optional per-host bootstrap IP mappings
+  bootstrap_map:
+    "dns.quad9.net":
+      - "9.9.9.9"
+      - "149.112.112.112"
+      - "2620:fe::fe"
+    "cloudflare-dns.com":
+      - "1.1.1.1"
+      - "1.0.0.1"
+      - "2606:4700:4700::1111"
+    "dns.mullvad.net":
+      - "194.242.2.2"
+      - "194.242.2.3"
+      - "2a07:e340::2"
+
+  timeout: 4s
+  # Upstream selection strategy: "round_robin" (balanced), "failover" (priority order), "parallel" (fastest wins)
+  strategy: "round_robin"
+
+# Sinkholing and domain filtering rules
+blocking:
+  enabled: true
+  # "zero_ip" returns 0.0.0.0 (A) and :: (AAAA).
+  # "nxdomain" returns an NXDOMAIN response code.
+  block_mode: "zero_ip"
+  ttl: 300
+
+  # Custom IPs for zero_ip block mode
+  custom_zero_ipv4: "0.0.0.0"
+  custom_zero_ipv6: "::"
+
+  # Remote blocklists (automatically downloaded & updated)
+  blocklist_urls:
+    # StevenBlack unified hosts (adware + malware)
+    - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+    # OISD Basic / Big (Uncomment if needed)
+    # - "https://small.oisd.nl"
+
+  # Local blocklist files (hosts format or one domain per line)
+  blocklist_files:
+    # - "/etc/tuxdnshole/custom-blocklist.txt"
+
+  # Custom manual domains/wildcards to block immediately
+  blacklist:
+    - "*.telemetry.microsoft.com"
+    - "*.data.microsoft.com"
+    - "telemetry.google.com"
+
+  # Domains that must never be blocked (overrides all blocklists)
+  whitelist:
+    - "connectivitycheck.gstatic.com"
+    - "msftconnecttest.com"
+
+  # Automatic background update interval for remote blocklists
+  update_interval: 24h
+
+# High-performance in-memory LRU cache
+cache:
+  enabled: true
+  size: 10000          # Number of unique DNS responses cached
+  min_ttl: 60s         # Minimum TTL to cache entries for
+  max_ttl: 86400s      # Maximum TTL ceiling (24 hours)
+
+# OpSec & Privacy configuration
+opsec:
+  # When true, zero client query logs are stored on disk.
+  # Structured logs will only output startup status and blocking facts in debug mode.
+  zero_log: true
+  # Logging verbosity: "debug", "info", "warn", "error"
+  log_level: "info"
