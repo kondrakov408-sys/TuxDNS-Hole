@@ -1,0 +1,38 @@
+# ==============================================================================
+# Mozilla / Firefox Telemetry & Tracking Blocklist
+# ==============================================================================
+
+# Core Telemetry & Experimentation
+0.0.0.0 incoming.telemetry.mozilla.org
+0.0.0.0 telemetry.mozilla.org
+0.0.0.0 telemetry-incoming.r53-2.services.mozilla.com
+0.0.0.0 telemetry.mozilla.net
+0.0.0.0 telemetry-coverage.mozilla.org
+0.0.0.0 telemetry-experiment.cdn.mozilla.net
+0.0.0.0 experiments.mozilla.org
+0.0.0.0 experiment.stage.mozaws.net
+0.0.0.0 normandy.cdn.mozilla.net
+0.0.0.0 normandy.mozilla.org
+
+# Crash Reporting & Diagnostics
+0.0.0.0 crash-reports.mozilla.com
+0.0.0.0 crash-stats.mozilla.org
+0.0.0.0 crash-stats.mozilla.com
+0.0.0.0 submit.backtrace.io
+
+# Surveys & Feedback
+0.0.0.0 qsurvey.mozilla.com
+0.0.0.0 surveys.mozilla.com
+0.0.0.0 survey.alchemer.com
+
+# Sponsored Content & Pocket Ads/Tracking
+0.0.0.0 api.getpocket.com
+0.0.0.0 spocs.getpocket.com
+0.0.0.0 pocket-image-cache.com
+0.0.0.0 getpocket.cdn.mozilla.net
+0.0.0.0 snippets.mozilla.com
+0.0.0.0 snippets.cdn.mozilla.net
+
+# Geo-location & Captive Portal probes (optional telemetry)
+0.0.0.0 location.services.mozilla.com
+0.0.0.0 detectportal.firefox.com

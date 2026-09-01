@@ -83,7 +83,7 @@ blocking:
 
   # Local blocklist files (hosts format or one domain per line)
   blocklist_files:
-    # - "/etc/tuxdnshole/custom-blocklist.txt"
+    - "/etc/tuxdnshole/blocklists/native-mozilla.txt"
 
   # Custom manual domains/wildcards to block immediately
   blacklist:

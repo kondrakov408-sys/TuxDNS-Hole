@@ -30,6 +30,10 @@ install: build
 	install -m 644 systemd/tuxdnshole.service $(SERVICE_PATH)
 	@echo "==> Setting up config directory $(CONFIG_DIR)..."
 	install -d $(CONFIG_DIR)
+	install -d $(CONFIG_DIR)/blocklists
+	@if [ -d blocklists ]; then \
+		install -m 644 blocklists/* $(CONFIG_DIR)/blocklists/; \
+	fi
 	@if [ ! -f $(CONFIG_DIR)/config.yaml ]; then \
 		echo "Installing default configuration to $(CONFIG_DIR)/config.yaml..."; \
 		install -m 644 configs/config.example.yaml $(CONFIG_DIR)/config.yaml; \
