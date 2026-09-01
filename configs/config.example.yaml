@@ -70,10 +70,16 @@ blocking:
 
   # Remote blocklists (automatically downloaded & updated)
   blocklist_urls:
-    # StevenBlack unified hosts (adware + malware)
+    # 1. HaGeZi Multi PRO (ТОП-1: баланс реклама/трекеры/телеметрия)
+    - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt"
+    # 2. OISD Big (глобальная база рекламы и трекеров)
+    - "https://big.oisd.nl/domainswild"
+    # 3. StevenBlack Unified (реклама + вредоносные сайты + фишинг)
     - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-    # OISD Basic / Big (Uncomment if needed)
-    # - "https://small.oisd.nl"
+    # 4. HaGeZi Threat Intelligence Feeds (C2-серверы, малварь, трояны)
+    - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/tif.txt"
+    # 5. RU AdList (лучшая база для Рунета: счетчики, баннеры, трекеры)
+    - "https://raw.githubusercontent.com/ruben-m/ru-adlist-hosts/master/hosts"
 
   # Local blocklist files (hosts format or one domain per line)
   blocklist_files:
